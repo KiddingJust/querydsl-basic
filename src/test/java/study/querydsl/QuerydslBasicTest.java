@@ -3,6 +3,8 @@ package study.querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -236,4 +238,63 @@ public class QuerydslBasicTest {
         //fetch join이므로 teamDSL 객체도 가지고 있음.
         assertThat(loaded).as("페치 조인 미적용").isTrue();
     }
+
+    /**
+     * 1. 나이가 가장 많은 회원 조회
+     * 2. 나이가 평균 이상인 회원도 비슷하게 조회 가능.
+     * 3. IN쿼리도, eq를 in으로 바꾸어주기만 하면 됨.
+     */
+    @Test
+    public void subQuery(){
+        //alias 겹치면 안되므로 하나 더 만들어줌. 서브쿼리용
+        QMemberDSL memberSub = new QMemberDSL("memberSub");
+
+        List<MemberDSL> result = queryFactory
+                .selectFrom(memberDSL)
+                .where(memberDSL.age.eq(
+                        JPAExpressions
+                                .select(memberSub.age.max())
+                                .from(memberSub)
+                ))
+                .fetch();
+        assertThat(result).extracting("age").containsExactly(40);
+    }
+    /**
+     * select 서브쿼리
+     */
+    @Test
+    public void selectSubQuery(){
+        QMemberDSL memberSub = new QMemberDSL("memberSub");
+        List<Tuple> result = queryFactory
+                .select(memberDSL.username,
+                        JPAExpressions
+                                .select(memberSub.age.avg())
+                                .from(memberSub))
+                .from(memberDSL)
+                .fetch();
+    }
+    /**
+     * case문 간단버전과 복잡한 버전.
+     */
+    @Test
+    public void complexCase(){
+        //simple
+        queryFactory
+                .select(memberDSL.age
+                        .when(10).then("열살")
+                        .when(20).then("스무살")
+                        .otherwise("기타"))
+                .from(memberDSL)
+                .fetch();
+
+        //complex
+        queryFactory
+                .select(new CaseBuilder()
+                        .when(memberDSL.age.between(0, 20)).then("주니어")
+                        .when(memberDSL.age.between(21, 40)).then("시니어")
+                        .otherwise("올드맨"))
+                .from(memberDSL)
+                .fetch();
+    }
+
 }
