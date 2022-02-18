@@ -1,8 +1,12 @@
 package study.querydsl;
 
 
+import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.Predicate;
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -11,6 +15,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import study.querydsl.dto.MemberDto;
+import study.querydsl.dto.QMemberDto;
 import study.querydsl.entity.MemberDSL;
 import study.querydsl.entity.QMemberDSL;
 import study.querydsl.entity.TeamDSL;
@@ -297,4 +303,159 @@ public class QuerydslBasicTest {
                 .fetch();
     }
 
+    //프로젝션 대상 하나일 때
+    @Test
+    public void simpleProjection(){
+        List<String> result = queryFactory
+                .select(memberDSL.username)
+                .from(memberDSL)
+                .fetch();
+        //참고로 아래와 같은 형태도 프로젝션 대상이 하나인 것. 객체 하나.
+        List<MemberDSL> fetch2 = queryFactory
+                .select(memberDSL)
+                .from(memberDSL)
+                .fetch();
+    }
+    // 튜플 프로젝션
+    @Test
+    public void tupleProjection(){
+        //memberDSL을 통으로 가져오는 게 아니라, 이 두개 데이터만 필요.
+        //이렇게 두개 이상을 꺼내서 받을 땐 튜플로 꺼내야함.
+        List<Tuple> result = queryFactory
+                .select(memberDSL.username, memberDSL.age)
+                .from(memberDSL)
+                .fetch();
+        for(Tuple tuple : result){
+            String username = tuple.get(memberDSL.username);
+            Integer age = tuple.get(memberDSL.age);
+            System.out.println(username + " : " + age);
+        }
+    }
+    //순수 JPA DTO
+    @Test
+    public void findDtoByJPQL(){
+        //dto 패키지 다 적어주어야 해서 지저분하고,
+        //생성자 방식만 지원함.
+        List<MemberDto> result = em.createQuery("select new study.querydsl.dto.MemberDto(m.username, m.age)" +
+                        " from MemberDSL m", MemberDto.class)
+                .getResultList();
+
+        for(MemberDto m : result){
+            System.out.println("memberDto = " + m);
+        }
+    }
+
+    @Test
+    public void findDtoBySetter(){
+        //new instance 등으로 만들어주어야 하므로, 기본 생성자도 있어야함.
+        //MemberDto에 @NoArgsConstructor 추가
+        List<MemberDto> result = queryFactory
+                .select(Projections.bean(MemberDto.class,
+                        memberDSL.username,
+                        memberDSL.age))
+                .from(memberDSL)
+                .fetch();
+        for(MemberDto m : result){
+            System.out.println("memberDto = " + m);
+        }
+    }
+    @Test
+    public void findDtoByField(){
+        //MemberDto에 getter, setter가 없어도 됨. 즉 지금 해둔 @Data를 빼도 됨.
+        List<MemberDto> result = queryFactory
+                .select(Projections.fields(MemberDto.class,
+                        memberDSL.username,
+                        memberDSL.age))
+                .from(memberDSL)
+                .fetch();
+        for(MemberDto m : result){
+            System.out.println("memberDto = " + m);
+        }
+    }
+    @Test
+    public void findDtoByConstructor(){
+        //MemberDto에 getter, setter가 없어도 됨. 즉 지금 해둔 @Data를 빼도 됨.
+        List<MemberDto> result = queryFactory
+                .select(Projections.constructor(MemberDto.class,
+                        memberDSL.username,
+                        memberDSL.age))
+                .from(memberDSL)
+                .fetch();
+        for(MemberDto m : result){
+            System.out.println("memberDto = " + m);
+        }
+    }
+
+    @Test
+    public void findDtoByQueryProjection(){
+        List<MemberDto> result = queryFactory
+                .select(new QMemberDto(memberDSL.username, memberDSL.age))
+                .from(memberDSL)
+                .fetch();
+        for(MemberDto m : result){
+            System.out.println("memberDto = " + m);
+        }
+    }
+    // 동적 쿼리
+    // 1. booleanbuilder
+    @Test
+    public void dynamicQuery_BooleanBuilder(){
+        String usernameParam = "member1";
+        Integer ageParam = 10;
+
+        List<MemberDSL> result = searchMember1(usernameParam, ageParam);
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    private List<MemberDSL> searchMember1(String usernameParam, Integer ageParam) {
+        BooleanBuilder builder = new BooleanBuilder();
+        if(usernameParam != null){
+            //builder에 and조건 추가
+            builder.and(memberDSL.username.eq(usernameParam));
+        }
+        if(ageParam != null){
+            builder.and(memberDSL.age.eq(ageParam));
+        }
+        return queryFactory
+                .selectFrom(memberDSL)
+                .where(builder)
+                .fetch();
+    }
+    //2. where 다중 파라미터
+    @Test
+    public void dynamicQuery_WhereParam(){
+        String usernameParam = "member1";
+        Integer ageParam = 10;
+
+        List<MemberDSL> result = searchMember2(usernameParam, ageParam);
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    private List<MemberDSL> searchMember2(String usernameParam, Integer ageParam) {
+        return queryFactory
+                .selectFrom(memberDSL)
+//                .where(usernameEq(usernameParam), ageEq(ageParam))
+                .where(allEq(usernameParam, ageParam))
+                .fetch();
+    }
+    private Predicate usernameEq(String usernameParam) {
+        if(usernameParam != null){
+            return memberDSL.username.eq(usernameParam);
+        }else{
+            return null;
+        }
+    }
+    private Predicate ageEq(Integer ageParam) {
+        return ageParam != null ? memberDSL.age.eq(ageParam) : null;
+    }
+    //그리고 조립도 가능하다. usernameEq, ageEq를 그대로 조립
+    private BooleanExpression usernameEq2(String usernameParam) {
+        return usernameParam != null ? memberDSL.username.eq(usernameParam) : null;
+    }
+    private BooleanExpression ageEq2(Integer ageParam) {
+        return ageParam != null ? memberDSL.age.eq(ageParam) : null;
+    }
+    private BooleanExpression allEq(String usernameParam, Integer ageParam){
+        return usernameEq2(usernameParam).and(ageEq2(ageParam));
+    }
 }
