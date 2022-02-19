@@ -8,6 +8,7 @@ import com.querydsl.core.types.Predicate;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import org.assertj.core.api.Assertions;
@@ -458,4 +459,62 @@ public class QuerydslBasicTest {
     private BooleanExpression allEq(String usernameParam, Integer ageParam){
         return usernameEq2(usernameParam).and(ageEq2(ageParam));
     }
+
+    //벌크 쿼리
+    @Test
+    public void bulkUpdate(){
+        /**
+         * 영속성 컨텍스트
+         * member1, member2, member3, member4
+         * --> 연산 후에는 비회원, 비회원, member3, member4가 되는 게 정상.
+         * --> 그런데 벌크 연산은 영속성 컨텍스트를 무시함. 바로 DB에 쿼리를 날리는 것
+         */
+        long count = queryFactory
+                .update(memberDSL)
+                .set(memberDSL.username, "비회원")
+                .where(memberDSL.age.lt(28))
+                .execute();
+        /**
+         * select 해오면 반영되지 않음. 하지만 DB 값은 변경됨
+         * 이는 영속성 컨텍스트의 값을 우선적으로 하기 때문. --> repeatable read
+         *         em.flush();
+         *         em.clear(); 해주면 됨.
+         */
+
+        List<MemberDSL> result = queryFactory
+                .selectFrom(memberDSL)
+                .fetch();
+        result.stream().forEach(m -> System.out.println(m));
+    }
+    @Test
+    public void bulkAddAndMultiply(){
+        queryFactory
+                .update(memberDSL)
+//                .set(memberDSL.age, memberDSL.age.add(1))
+                .set(memberDSL.age, memberDSL.age.multiply(2))
+                .execute();
+    }
+    @Test
+    public void bulkDelete(){
+        queryFactory
+                .delete(memberDSL)
+                .where(memberDSL.age.gt(18))
+                .execute();
+    }
+
+    //실패하는데 이유를 모르겠음. D
+    @Test
+    public void sqlFunction(){
+        List<String> result = queryFactory
+                .select(Expressions.stringTemplate(
+                        "function('replace', {0}, {1}, {2})"
+                        , memberDSL.username,
+                        "member", "M"))
+                .from(memberDSL)
+                .fetch();
+        for(String s : result){
+            System.out.println("s = " + s);
+        }
+    }
+
 }
